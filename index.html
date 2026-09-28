@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HTML Bubble → PNG</title>
+<style>
+*{box-sizing:border-box}
+:root{color-scheme:dark;--bg:#101114;--panel:#17191e;--panel2:#1e2128;--line:#30343d;--text:#f2f4f7;--muted:#9aa2ad;--accent:#7c9cff}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif}
+.app{min-height:100vh;display:flex;flex-direction:column}
+header{height:68px;padding:0 24px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;background:#121419}
+.brand{font-weight:800;font-size:18px;letter-spacing:.2px}.brand span{color:var(--accent)}
+.header-note{color:var(--muted);font-size:13px}
+main{flex:1;display:grid;grid-template-columns:minmax(360px,43%) 1fr;min-height:0}
+.editor{border-right:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+.toolbar{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.toolbar button,.toolbar select{height:38px;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:9px;padding:0 12px;font-size:13px;cursor:pointer}
+.toolbar button:hover{border-color:#505866}.toolbar .primary{background:var(--accent);border-color:var(--accent);color:#0b1020;font-weight:750}
+.toolbar .spacer{flex:1}
+.editor-wrap{position:relative;flex:1;min-height:0}
+textarea{width:100%;height:100%;resize:none;border:0;outline:0;padding:20px;background:#0d0f13;color:#dce2ea;font:13px/1.65 "SFMono-Regular",Consolas,"Liberation Mono",monospace;tab-size:2}
+.preview{display:flex;flex-direction:column;min-width:0}
+.previewbar{height:58px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 16px;gap:10px}
+.previewbar strong{font-size:14px}.status{font-size:12px;color:var(--muted)}
+.canvas-wrap{flex:1;overflow:auto;padding:32px;display:flex;align-items:flex-start;justify-content:center;background-color:#d8dbe0;background-image:linear-gradient(45deg,#c7cad0 25%,transparent 25%),linear-gradient(-45deg,#c7cad0 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#c7cad0 75%),linear-gradient(-45deg,transparent 75%,#c7cad0 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}
+#render{display:inline-block;position:relative;max-width:none;filter:drop-shadow(0 10px 24px rgba(0,0,0,.16))}
+#render:empty{display:none}
+.empty{color:#626b78;text-align:center;padding:80px 20px;font-size:14px}
+.info{position:fixed;left:16px;bottom:16px;background:rgba(20,23,29,.92);border:1px solid var(--line);border-radius:10px;padding:8px 10px;color:#b9c0ca;font-size:11px;pointer-events:none;opacity:.9}
+@media(max-width:850px){main{grid-template-columns:1fr;grid-template-rows:48vh 52vh}.editor{border-right:0;border-bottom:1px solid var(--line)}.header-note{display:none}.canvas-wrap{padding:20px}}
+</style>
+</head>
+<body>
+<div class="app">
+<header><div class="brand">HTML Bubble <span>→ PNG</span></div><div class="header-note">透明背景 · 自動裁切 · 高清輸出</div></header>
+<main>
+<section class="editor">
+  <div class="toolbar">
+    <button id="sample">載入範例</button>
+    <button id="clear">清空</button>
+    <div class="spacer"></div>
+    <label style="font-size:12px;color:#9aa2ad">倍率</label>
+    <select id="scale"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option><option value="4">4×</option></select>
+    <button class="primary" id="download">下載 PNG</button>
+  </div>
+  <div class="editor-wrap"><textarea id="source" spellcheck="false" placeholder="把 AI 生成的 HTML / CSS 貼在這裡…"></textarea></div>
+</section>
+<section class="preview">
+  <div class="previewbar"><strong>即時預覽</strong><span id="status" class="status">等待 HTML</span></div>
+  <div class="canvas-wrap"><div id="render"></div><div id="empty" class="empty">貼上 HTML 後，這裡會顯示透明背景預覽</div></div>
+</section>
+</main>
+<div class="info">PNG 背景：RGBA #00000000 · 輸出前會自動裁切透明邊</div>
+</div>
+
+<script>
+const source=document.getElementById('source');
+const render=document.getElementById('render');
+const empty=document.getElementById('empty');
+const status=document.getElementById('status');
+const scaleEl=document.getElementById('scale');
+
+const sample=`<style>
+.bubble{
+  display:inline-block;
+  position:relative;
+  padding:22px 30px;
+  border-radius:28px;
+  background:linear-gradient(135deg,#8ec5ff,#d7b6ff);
+  color:#20243a;
+  font-size:28px;
+  font-weight:800;
+  letter-spacing:1px;
+  box-shadow:0 14px 35px rgba(82,72,160,.22);
+}
+.bubble:after{
+  content:"";
+  position:absolute;
+  left:34px;
+  bottom:-18px;
+  width:30px;
+  height:30px;
+  background:#d0bdfd;
+  clip-path:polygon(0 0,100% 0,0 100%);
+}
+</style>
+<div class="bubble">這是一個漂亮的氣泡 ✨</div>`;
+
+function update(){
+  const value=source.value.trim();
+  render.innerHTML='';
+  if(!value){empty.style.display='block';status.textContent='等待 HTML';return}
+  empty.style.display='none';
+  render.innerHTML=value;
+  status.textContent='已渲染 · '+Math.round(render.getBoundingClientRect().width)+' × '+Math.round(render.getBoundingClientRect().height)+' px';
+}
+let timer;
+source.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(update,120)});
+document.getElementById('sample').onclick=()=>{source.value=sample;update()};
+document.getElementById('clear').onclick=()=>{source.value='';update()};
+
+function loadImage(src){
+ return new Promise((resolve,reject)=>{const i=new Image();i.onload=()=>resolve(i);i.onerror=reject;i.src=src});
+}
+
+async function renderToPng(){
+  if(!source.value.trim()) throw new Error('請先輸入 HTML');
+  const clone=render.cloneNode(true);
+  clone.style.position='absolute'; clone.style.left='0'; clone.style.top='0';
+  clone.style.filter='none';
+  clone.style.margin='0';
+  clone.style.width='max-content';
+  clone.style.height='max-content';
+
+  const host=document.createElement('div');
+  host.style.cssText='position:fixed;left:-100000px;top:0;padding:0;margin:0;background:transparent;display:block;width:max-content;height:max-content;overflow:visible;';
+  host.appendChild(clone); document.body.appendChild(host);
+
+  const all=[clone,...clone.querySelectorAll('*')];
+  for(const el of all){
+    el.style.animation='none';
+    el.style.transition='none';
+  }
+  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+
+  const rect=clone.getBoundingClientRect();
+  const s=parseInt(scaleEl.value,10);
+  const pad=0;
+  const w=Math.max(1,Math.ceil(rect.width)+pad*2), h=Math.max(1,Math.ceil(rect.height)+pad*2);
+
+  // SVG foreignObject preserves much more CSS than canvas libraries.
+  const serialized=new XMLSerializer().serializeToString(clone);
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <foreignObject x="0" y="0" width="${w}" height="${h}">${serialized}</foreignObject>
+  </svg>`;
+  const blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  try{
+    const img=await loadImage(url);
+    const canvas=document.createElement('canvas');
+    canvas.width=w*s;canvas.height=h*s;
+    const ctx=canvas.getContext('2d',{alpha:true});
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.setTransform(s,0,0,s,0,0);
+    ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(img,0,0);
+    const png=await new Promise((resolve,reject)=>canvas.toBlob(b=>b?resolve(b):reject(new Error('PNG 生成失敗')),'image/png'));
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(png);
+    a.download='bubble-'+Date.now()+'.png';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  }finally{
+    URL.revokeObjectURL(url);
+    host.remove();
+  }
+}
+
+document.getElementById('download').onclick=async()=>{
+  const btn=document.getElementById('download');
+  btn.disabled=true;btn.textContent='生成中…';
+  try{await renderToPng();status.textContent='PNG 已生成';}
+  catch(e){console.error(e);alert('PNG 生成失敗：'+e.message);}
+  finally{btn.disabled=false;btn.textContent='下載 PNG';}
+};
+
+source.value=sample;update();
+</script>
+</body>
+</html>
